@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#050916">
+  <title>ElectroTrack Pro | {{ 'Recover password' if recovery_mode|default(false) else ('First-time setup' if setup_mode else ('Create account' if register_mode|default(false) else 'Sign in')) }}</title>
+  <script>try { var savedTheme = localStorage.getItem('et-theme'); if (savedTheme) document.documentElement.dataset.theme = savedTheme; } catch (e) {}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="auth-page">
+<div class="scene" aria-hidden="true">
+  <div class="aurora aurora-a"></div>
+  <div class="aurora aurora-b"></div>
+  <div class="aurora aurora-c"></div>
+  <div class="scene-grid"></div>
+  <div class="scene-noise"></div>
+</div>
+
+<main class="auth-shell">
+  <section class="auth-visual" aria-hidden="true">
+    <a class="logo auth-logo" href="/">
+      <span class="logo-mark"><i data-lucide="zap"></i></span>
+      <span class="logo-wordmark"><span class="brand-electro">Electro</span><span class="brand-track">Track</span></span>
+      <span class="logo-pro">PRO</span>
+    </a>
+
+    <div class="auth-visual-copy">
+      <span class="hero-badge"><span class="pulse-ring"></span> Electricity intelligence, reimagined</span>
+      <h1>See your grid<br><span class="text-grad">in three dimensions.</span></h1>
+      <p>Meter-level readings, review-safe analytics, tariff estimates, and carbon insight — all in a private workspace that never leaves this machine.</p>
+      <ul class="auth-features">
+        <li><span><i data-lucide="move-3d"></i></span><div><strong>Immersive analytics</strong><small>Animated 3D charts and live signals</small></div></li>
+        <li><span><i data-lucide="shield-check"></i></span><div><strong>Review-safe data</strong><small>Baselines, rollovers, and spikes handled</small></div></li>
+        <li><span><i data-lucide="hard-drive"></i></span><div><strong>Local-first privacy</strong><small>Your SQLite data stays on your device</small></div></li>
+      </ul>
+    </div>
+
+    <div class="auth-scene">
+      <div class="core-stage">
+        <div class="core">
+          <span class="ring ring-a"><i></i></span>
+          <span class="ring ring-b"><i></i></span>
+          <span class="ring ring-c"><i></i></span>
+          <span class="orb"><span class="orb-glow"></span><span class="orb-swirl"></span></span>
+          <span class="satellite sat-a"></span>
+          <span class="satellite sat-b"></span>
+        </div>
+        <div class="core-shadow"></div>
+      </div>
+      <div class="holo-chip holo-1"><i data-lucide="zap"></i><div><span>Live metering</span><strong>3D insight</strong></div></div>
+      <div class="holo-chip holo-2"><i data-lucide="leaf"></i><div><span>Carbon aware</span><strong>kg CO₂ tracked</strong></div></div>
+    </div>
+
+    <p class="auth-visual-foot">ElectroTrack 2.0 · Local electricity management</p>
+  </section>
+
+  <section class="auth-card-wrap">
+    <div class="auth-card">
+      <div class="auth-card-top">
+        <span class="auth-mode-pill">{{ 'Password recovery' if recovery_mode|default(false) else ('Secure local setup' if setup_mode else ('New account' if register_mode|default(false) else 'Private dashboard')) }}</span>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle light and dark theme"><i data-lucide="sun-moon"></i></button>
+      </div>
+
+      <h2>{{ 'Reset your password' if recovery_mode|default(false) else ('Create your administrator account' if setup_mode else ('Create an account' if register_mode|default(false) else 'Welcome back')) }}</h2>
+      <p class="auth-subtitle">
+        {{ 'Answer your recovery question to choose a new password.' if recovery_mode == 'answer' else ('Enter your account name to look up its recovery question.' if recovery_mode == 'lookup' else ('This one-time setup creates the admin account that protects your local consumer and meter records.' if setup_mode
+           else ('Create a sign-in to access the shared ElectroTrack database.' if register_mode|default(false)
+           else 'Sign in to access your electricity management workspace.'))) }}
+      </p>
+
+      {% if setup_mode %}
+      <div class="setup-highlight">
+        <i data-lucide="info"></i>
+        <span>ElectroTrack stores all data locally in a SQLite database on this machine. No cloud sync.</span>
+      </div>
+      {% endif %}
+
+      <div class="toast-stack auth-toasts" aria-live="polite">
+        {% for category, message in get_flashed_messages(with_categories=true) %}
+        <div class="flash-message {{ category }}" data-toast role="alert">
+          <span class="flash-icon"><i data-lucide="{{ 'circle-check' if category == 'success' else 'circle-alert' }}"></i></span>
+          <span>{{ message }}</span>
+        </div>
+        {% endfor %}
+      </div>
+
+      <form method="post" class="auth-form" action="{{ url_for('register') if register_mode|default(false) else (url_for('forgot_password') if recovery_mode|default(false) else '') }}">
+        {% if recovery_mode == 'lookup' %}
+        <label for="username">Username</label>
+        <div class="input-icon"><i data-lucide="user"></i><input id="username" name="username" type="text" maxlength="80" autocomplete="username" placeholder="Enter your username" required></div>
+        <input type="hidden" name="step" value="lookup">
+        <button class="btn btn-primary auth-submit" type="submit"><i data-lucide="search"></i><span>Find recovery question</span></button>
+        {% elif recovery_mode == 'answer' %}
+        <input type="hidden" name="step" value="reset">
+        <input type="hidden" name="username" value="{{ recovery_username }}">
+        <label>Security question</label>
+        <div class="setup-highlight"><i data-lucide="help-circle"></i><span>{{ recovery_question }}</span></div>
+        <label for="security-answer">Your answer</label>
+        <div class="input-icon"><i data-lucide="key-round"></i><input id="security-answer" name="security_answer" type="text" autocomplete="off" required></div>
+        <label for="password">New password</label>
+        <div class="input-icon password-field"><i data-lucide="lock"></i><input id="password" name="password" type="password" autocomplete="new-password" minlength="10" placeholder="Min. 10 characters" required><button class="password-toggle" type="button" aria-label="Show password" data-password-toggle><i data-lucide="eye"></i></button></div>
+        <label for="confirm-password">Confirm new password</label>
+        <div class="input-icon password-field"><i data-lucide="lock-keyhole"></i><input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="10" required><button class="password-toggle" type="button" aria-label="Show password" data-password-toggle><i data-lucide="eye"></i></button></div>
+        <button class="btn btn-primary auth-submit" type="submit"><i data-lucide="rotate-cw"></i><span>Change password</span></button>
+        {% else %}
+        <label for="username">Username</label>
+        <div class="input-icon"><i data-lucide="user"></i><input id="username" name="username" type="text" maxlength="80" autocomplete="username" placeholder="Enter your username" required></div>
+
+        <label for="password">Password</label>
+        <div class="input-icon password-field"><i data-lucide="lock"></i><input id="password" name="password" type="password" autocomplete="{{ 'current-password' if not setup_mode and not register_mode|default(false) else 'new-password' }}" minlength="10" placeholder="Min. 10 characters" required><button class="password-toggle" type="button" aria-label="Show password" data-password-toggle><i data-lucide="eye"></i></button></div>
+
+        {% if setup_mode or register_mode|default(false) %}
+        <label for="confirm-password">Confirm password</label>
+        <div class="input-icon password-field"><i data-lucide="lock-keyhole"></i><input id="confirm-password" name="confirm_password" type="password" autocomplete="new-password" minlength="10" placeholder="Repeat your password" required><button class="password-toggle" type="button" aria-label="Show password" data-password-toggle><i data-lucide="eye"></i></button></div>
+        {% endif %}
+
+        {% if setup_mode or register_mode|default(false) %}
+        <label for="security-question">Security question for password recovery</label>
+        <select id="security-question" name="security_question" required>
+          <option value="">Choose a question</option>
+          {% for question in security_questions %}<option value="{{ question }}">{{ question }}</option>{% endfor %}
+        </select>
+        <label for="security-answer">Security answer</label>
+        <div class="input-icon"><i data-lucide="key-round"></i><input id="security-answer" name="security_answer" type="text" autocomplete="off" minlength="3" required></div>
+        {% endif %}
+
+        {% if register_mode|default(false) %}
+        <label for="role-select">Role</label>
+        <select id="role-select" name="role">
+          <option value="viewer">Viewer — view and download reports</option>
+          {% if session.get('role') == 'admin' %}<option value="operator">Operator — manage consumers, meters, and readings</option>{% endif %}
+        </select>
+        {% endif %}
+
+        <button class="btn btn-primary auth-submit" type="submit" data-loading>
+          <i data-lucide="{{ 'user-plus' if setup_mode or register_mode|default(false) else 'log-in' }}"></i>
+          <span>{{ 'Create account' if setup_mode or register_mode|default(false) else 'Sign in' }}</span>
+        </button>
+        {% endif %}
+      </form>
+
+      {% if recovery_mode %}
+      <p class="auth-switch"><a href="{{ url_for('login') }}">Return to sign in</a></p>
+      {% elif not setup_mode and not register_mode|default(false) %}
+      <p class="auth-switch">New to ElectroTrack? <a href="{{ url_for('register') }}">Create an account</a></p>
+      <p class="auth-switch"><a href="{{ url_for('forgot_password') }}">Forgot password?</a></p>
+      {% elif register_mode|default(false) %}
+      <p class="auth-switch">Already have an account? <a href="{{ url_for('login') }}">Sign in</a></p>
+      {% endif %}
+
+      <div class="auth-divider"><span>Protected workspace</span></div>
+      <p class="auth-footnote">
+        <i data-lucide="shield-check"></i>
+        Data stored locally in <code>instance/electrotrack.db</code>
+      </p>
+    </div>
+  </section>
+</main>
+
+<script>
+  if (window.lucide) window.lucide.createIcons();
+  document.querySelectorAll('[data-password-toggle]').forEach(function (button) {
+    button.addEventListener('click', function () {
+      var field = button.closest('.password-field').querySelector('input');
+      var showing = field.type === 'text';
+      field.type = showing ? 'password' : 'text';
+      button.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+      button.classList.toggle('is-visible', !showing);
+    });
+  });
+  (function () {
+    var root = document.documentElement;
+    var saved = localStorage.getItem('et-theme');
+    root.dataset.theme = saved || 'dark';
+    var toggle = document.getElementById('theme-toggle');
+    if (toggle) toggle.addEventListener('click', function () {
+      var next = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      root.dataset.theme = next;
+      localStorage.setItem('et-theme', next);
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', next === 'dark' ? '#050916' : '#eef3fb');
+    });
+  })();
+  setTimeout(function () {
+    document.querySelectorAll('.flash-message').forEach(function (el) {
+      el.style.transition = 'opacity .4s, transform .4s';
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(-6px)';
+      setTimeout(function () { el.remove(); }, 420);
+    });
+  }, 5200);
+</script>
+</body>
+</html>

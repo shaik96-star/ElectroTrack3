@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#050916">
+    <meta name="description" content="ElectroTrack — a three-dimensional electricity consumption analysis workspace.">
+    <title>ElectroTrack · {{ org_name }}</title>
+    <script>document.documentElement.classList.add('js'); try { var savedTheme = localStorage.getItem('et-theme'); if (savedTheme) document.documentElement.dataset.theme = savedTheme; } catch (e) {}</script>
+    <noscript><style>.reveal { opacity: 1 !important; transform: none !important; }</style></noscript>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="{{ 'is-viewer' if session.get('role') == 'viewer' else ('is-operator' if session.get('role') == 'operator' else '') }}" data-open-form="{{ 'true' if open_form else 'false' }}"
+      data-edit-id="{{ request.args.get('edit', '')|e }}"
+      data-open-reading="{{ 'true' if request.args.get('reading') else 'false' }}">
+
+<a class="skip-link" href="#main">Skip to content</a>
+
+<div class="scene" aria-hidden="true">
+    <div class="aurora aurora-a"></div>
+    <div class="aurora aurora-b"></div>
+    <div class="aurora aurora-c"></div>
+    <div class="scene-grid"></div>
+    <div class="scene-noise"></div>
+</div>
+
+<div class="app-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+        <div class="sidebar-head">
+            <a class="logo" href="/#dashboard" aria-label="ElectroTrack home">
+                <span class="logo-mark"><i data-lucide="zap"></i></span>
+                <span class="logo-wordmark"><span class="brand-electro">Electro</span><span class="brand-track">Track</span></span>
+                <span class="logo-pro">PRO</span>
+            </a>
+            <button class="icon-btn sidebar-close" id="sidebar-close" type="button" aria-label="Close menu"><i data-lucide="x"></i></button>
+        </div>
+
+        <div class="sidebar-profile">
+            <span class="avatar avatar-lg">{{ (session.get('username') or 'U')[:1]|upper }}</span>
+            <div class="sidebar-profile-copy">
+                <strong>{{ session.get('username') }}</strong>
+                <small>{{ session.get('role', 'admin')|capitalize }} workspace</small>
+            </div>
+            <span class="status-dot" title="Signed in"></span>
+        </div>
+
+        <p class="menu-heading">Workspace</p>
+        <nav aria-label="Sections">
+            {% set nav_items = [
+                ('dashboard', 'layout-dashboard', 'Dashboard'),
+                ('consumers', 'users', 'Consumers'),
+                ('meters', 'cpu', 'Meters'),
+                ('readings', 'gauge', 'Meter readings'),
+                ('analytics', 'chart-no-axes-combined', 'Analytics'),
+                ('alerts', 'bell-ring', 'Alerts'),
+                ('billing', 'receipt-text', 'Billing & tariffs'),
+                ('reports', 'file-text', 'Reports'),
+                ('settings', 'settings-2', 'Settings')
+            ] %}
+            {% for view_id, icon, label in nav_items %}
+            <a href="#{{ view_id }}" class="nav-link" data-nav="{{ view_id }}">
+                <span class="nav-icon"><i data-lucide="{{ icon }}"></i></span>
+                <span>{{ label }}</span>
+                {% if view_id == 'alerts' and unread_alerts %}<span class="nav-badge">{{ unread_alerts }}</span>{% elif view_id == 'readings' and pending_count %}<span class="nav-badge">{{ pending_count }}</span>{% endif %}
+            </a>
+            {% endfor %}
+        </nav>
+
+        <div class="sidebar-pulse">
+            <div class="sidebar-pulse-head">
+                <span><i data-lucide="activity"></i> Month pulse</span>
+                <strong>{{ "{:,}".format(month_total) }}</strong>
+            </div>
+            <div class="mini-bars" aria-hidden="true">
+                {% for item in chart_values %}<span style="height: {{ 16 + item.width * 0.72 }}%"></span>{% endfor %}
+            </div>
+            <small>{{ chart_title }}</small>
+        </div>
+
+        <div class="sidebar-foot">
+            <div class="sidebar-status">
+                <span class="pulse-ring"></span>
+                <div><strong>All systems nominal</strong><small>Local data · v2.0</small></div>
+            </div>
+            <form action="{{ url_for('logout') }}" method="post" class="sidebar-signout-form"><button class="sidebar-signout" type="submit"><i data-lucide="log-out"></i> Sign out</button></form>
+        </div>
+    </aside>
+
+    <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+
+    <div class="main-wrap">
+        <header class="topbar">
+            <div class="topbar-left">
+                <button class="icon-btn menu-toggle" id="menu-toggle" type="button" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false"><i data-lucide="menu"></i></button>
+                <div class="crumb"><span>Workspace</span><i data-lucide="chevron-right"></i><strong id="current-section">Dashboard</strong></div>
+            </div>
+            <div class="topbar-actions">
+                <button class="command-trigger" id="command-trigger" type="button">
+                    <i data-lucide="search"></i><span>Search or jump to…</span><kbd>⌘K</kbd>
+                </button>
+                <div class="live-clock" title="Local time"><i data-lucide="clock-3"></i><span id="live-clock">--:--</span></div>
+                <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle light and dark theme" title="Toggle theme"><i data-lucide="sun-moon"></i></button>
+                <a class="icon-btn notification-btn" href="#alerts" aria-label="Alerts{% if unread_alerts %}, {{ unread_alerts }} unread{% endif %}" title="Alerts">
+                    <i data-lucide="bell"></i>{% if unread_alerts %}<span class="notify-dot"></span>{% endif %}
+                </a>
+                <div class="user-chip">
+                    <span class="avatar">{{ (session.get('username') or 'U')[:1]|upper }}</span>
+                    <div class="user-chip-copy"><strong>{{ session.get('username') }}</strong><small>{{ session.get('role', 'admin') }}</small></div>
+                    <form action="{{ url_for('logout') }}" method="post"><button class="icon-btn icon-btn-sm" type="submit" aria-label="Sign out" title="Sign out"><i data-lucide="log-out"></i></button></form>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-content" id="main">
+            {% if session.get('role') == 'viewer' %}
+            <div class="viewer-banner"><i data-lucide="eye"></i><div><strong>Viewer mode</strong><span>You can explore every page and download reports. Editing is disabled for this account.</span></div></div>
+            {% elif session.get('role') == 'operator' %}
+            <div class="viewer-banner operator-banner"><i data-lucide="wrench"></i><div><strong>Operator mode</strong><span>You can manage consumers, meters, and readings. Workspace settings and account administration are reserved for the administrator.</span></div></div>
+            {% endif %}
+
+            <div class="toast-stack" id="toast-stack" aria-live="polite" aria-atomic="false">
+                {% for category, message in flash_messages %}
+                <div class="flash-message {{ category }}" data-toast role="status">
+                    <span class="flash-icon"><i data-lucide="{{ 'circle-check' if category == 'success' else ('triangle-alert' if category == 'warning' else 'circle-alert') }}"></i></span>
+                    <span>{{ message }}</span>
+                    <button class="flash-close" type="button" aria-label="Dismiss"><i data-lucide="x"></i></button>
+                </div>
+                {% endfor %}
+            </div>
+
+            <!-- ═══════════════ DASHBOARD ═══════════════ -->
+            <section class="page-view" id="dashboard">
+                <header class="page-head">
+                    <div>
+                        <p class="eyebrow">Control room</p>
+                        <h1>Dashboard <span class="live-pill"><span class="pulse-ring"></span> Live</span></h1>
+                        <p class="page-subtitle">A living view of every account, meter, and kilowatt in {{ org_name }}.</p>
+                    </div>
+                    <div class="page-actions">
+                        {% if has_sample_data %}<span class="data-source-pill"><i data-lucide="flask-conical"></i> Sample data included</span>{% else %}<span class="data-source-pill recorded"><i data-lucide="database"></i> Recorded data</span>{% endif %}
+                        <button class="btn btn-primary operator-only" type="button" data-open-reading><i data-lucide="plus"></i> Record reading</button>
+                        <a class="btn btn-ghost" href="#analytics">Analytics <i data-lucide="arrow-up-right"></i></a>
+                    </div>
+                </header>
+
+                <section class="hero reveal" aria-label="Overview">
+                    <div class="hero-copy">
+                        <span class="hero-badge"><span class="pulse-ring"></span> Grid synced · {{ today }}</span>
+                        <h2>Every kilowatt,<br><span class="text-grad">beautifully tracked.</span></h2>
+                        <p class="hero-lede">Meter-level intelligence with review-safe calculations, tariff estimates, and carbon insight — all rendered in real time from your local database.</p>
+                        <div class="hero-actions">
+                            <button class="btn btn-primary btn-lg operator-only" type="button" data-open-reading><i data-lucide="gauge"></i> Record a reading</button>
+                            <a class="btn btn-ghost btn-lg" href="#consumers">Explore consumers <i data-lucide="arrow-right"></i></a>
+                        </div>
+                        <div class="hero-metrics">
+                            <div><span>This month</span><strong>{{ "{:,}".format(month_total) }} <small>kWh</small></strong></div>
+                            <div><span>Projected</span><strong>{{ "{:,}".format(month_projection) }} <small>kWh</small></strong></div>
+                            <div><span>CO₂ footprint</span><strong>{{ co2_month_kg }} <small>kg</small></strong></div>
+                        </div>
+                    </div>
+                    <div class="hero-scene" aria-hidden="true">
+                        <canvas id="hero-canvas"></canvas>
+                        <div class="core-stage">
+                            <div class="core">
+                                <span class="ring ring-a"><i></i></span>
+                                <span class="ring ring-b"><i></i></span>
+                                <span class="ring ring-c"><i></i></span>
+                                <span class="orb"><span class="orb-glow"></span><span class="orb-swirl"></span></span>
+                                <span class="satellite sat-a"></span>
+                                <span class="satellite sat-b"></span>
+                            </div>
+                            <div class="core-shadow"></div>
+                        </div>
+                        <div class="holo-chip holo-1"><i data-lucide="zap"></i><div><span>Today</span><strong>{{ "{:,}".format(today_total) }} kWh</strong></div></div>
+                        <div class="holo-chip holo-2"><i data-lucide="leaf"></i><div><span>CO₂ avoided</span><strong>{{ co2_trees_year }} trees/yr</strong></div></div>
+                        <div class="holo-chip holo-3"><i data-lucide="shield-check"></i><div><span>Account health</span><strong>{{ healthy_pct }}%</strong></div></div>
+                    </div>
+                </section>
+
+                <section class="stats-grid" aria-label="Consumption summary">
+                    <article class="stat-card reveal" data-tilt data-accent="cyan">
+                        <div class="stat-topline"><p class="stat-label">Total consumers</p><span class="stat-icon"><i data-lucide="users"></i></span></div>
+                        <div class="stat-value"><span data-counter="{{ consumer_count }}">0</span></div>
+                        <p class="stat-note">{{ meter_count }} meter{{ '' if meter_count == 1 else 's' }} across {{ region_options|length }} region{{ '' if region_options|length == 1 else 's' }}</p>
+                        <div class="stat-foot"><span class="delta neutral"><i data-lucide="user-check"></i> Active accounts</span><canvas class="sparkline" data-spark="consumers" height="34"></canvas></div>
+                    </article>
+                    <article class="stat-card reveal" data-tilt data-accent="amber">
+                        <div class="stat-topline"><p class="stat-label">Today's consumption</p><span class="stat-icon"><i data-lucide="zap"></i></span></div>
+                        <div class="stat-value"><span data-counter="{{ today_total }}">0</span> <span>kWh</span></div>
+                        <p class="stat-note">Daily electricity usage</p>
+                        <div class="stat-foot">
+                            {% if today_delta_pct is not none %}<span class="delta {{ 'up' if today_delta_pct > 0 else ('down' if today_delta_pct < 0 else 'neutral') }}"><i data-lucide="{{ 'trending-up' if today_delta_pct > 0 else 'trending-down' }}"></i> {{ today_delta_pct|abs }}% vs yesterday</span>{% else %}<span class="delta neutral"><i data-lucide="minus"></i> No comparison yet</span>{% endif %}
+                            <canvas class="sparkline" data-spark="daily" height="34"></canvas>
+                        </div>
+                    </article>
+                    <article class="stat-card reveal" data-tilt data-accent="violet">
+                        <div class="stat-topline"><p class="stat-label">Monthly consumption</p><span class="stat-icon"><i data-lucide="chart-no-axes-combined"></i></span></div>
+                        <div class="stat-value"><span data-counter="{{ month_total }}">0</span> <span>kWh</span></div>
+                        <p class="stat-note">Projected {{ "{:,}".format(month_projection) }} kWh this month</p>
+                        <div class="stat-foot">
+                            {% if month_delta_pct is not none %}<span class="delta {{ 'up' if month_delta_pct > 0 else ('down' if month_delta_pct < 0 else 'neutral') }}"><i data-lucide="{{ 'trending-up' if month_delta_pct > 0 else 'trending-down' }}"></i> {{ month_delta_pct|abs }}% vs last month</span>{% else %}<span class="delta neutral"><i data-lucide="sparkles"></i> First tracked month</span>{% endif %}
+                            <canvas class="sparkline" data-spark="daily" height="34"></canvas>
+                        </div>
+                    </article>
+                    <article class="stat-card reveal" data-tilt data-accent="rose">
+                        <div class="stat-topline"><p class="stat-label">High usage alerts</p><span class="stat-icon"><i data-lucide="triangle-alert"></i></span></div>
+                        <div class="stat-value"><span data-counter="{{ high_usage_count }}">0</span></div>
+                        <p class="stat-note">At or above {{ "{:,}".format(high_usage_threshold) }} kWh</p>
+                        <div class="stat-foot"><span class="delta {{ 'neutral' if high_usage_count == 0 else 'up' }}"><i data-lucide="{{ 'shield-check' if high_usage_count == 0 else 'activity' }}"></i> {{ 'All accounts healthy' if high_usage_count == 0 else 'Review required' }}</span></div>
+                    </article>
+                    <article class="stat-card reveal" data-tilt data-accent="green">
+                        <div class="stat-topline"><p class="stat-label">Monthly emissions</p><span class="stat-icon"><i data-lucide="leaf"></i></span></div>
+                        <div class="stat-value"><span data-counter="{{ co2_month_kg }}" data-decimals="1">0</span> <span>kg CO₂</span></div>
+                        <p class="stat-note">At {{ co2_factor }} kg CO₂ per kWh</p>
+                        <div class="stat-foot"><span class="delta down"><i data-lucide="trees"></i> {{ co2_trees_year }} trees absorb this yearly</span></div>
+                    </article>
+                </section>
+
+                <div class="dashboard-overview-grid">
+                    <section class="panel chart-panel reveal">
+                        <div class="panel-heading">
+                            <div><p class="eyebrow">Consumption</p><h2>Usage overview</h2><p>{{ chart_title }}</p></div>
+                            <div class="chart-head-actions">
+                                <div class="segmented" role="group" aria-label="Chart period">
+                                    <a href="/?period=week#dashboard" class="{{ 'active' if selected_period == 'week' else '' }}">Week</a>
+                                    <a href="/?period=month#dashboard" class="{{ 'active' if selected_period == 'month' else '' }}">Month</a>
+                                    <a href="/?period=year#dashboard" class="{{ 'active' if selected_period == 'year' else '' }}">Year</a>
+                                </div>
+                                <a class="btn btn-ghost btn-sm" href="#analytics">Open analytics <i data-lucide="arrow-up-right"></i></a>
+                            </div>
+                        </div>
+                        <div class="chart-kpis">
+                            <div><span>Total</span><strong id="chart-total">—</strong></div>
+                            <div><span>Average</span><strong id="chart-average">—</strong></div>
+                            <div><span>Peak</span><strong id="chart-peak">—</strong></div>
+                        </div>
+                        <div class="chart-canvas-wrap">
+                            <canvas id="usage-chart" aria-label="3D bar chart of {{ chart_title }}" role="img"></canvas>
+                            <div class="chart-tooltip" id="usage-tooltip"></div>
+                        </div>
+                        <div class="chart-legend"><span class="legend-item"><i class="legend-swatch cyan"></i> Estimated usage</span><span class="legend-item"><i class="legend-swatch violet"></i> Reading intervals</span><span class="legend-note">Sample {{ "{:,}".format(month_sample_total) }} kWh · Recorded {{ "{:,}".format(month_recorded_total) }} kWh</span></div>
+                        <details class="chart-data">
+                            <summary>View chart data as a table</summary>
+                            <div class="table-wrapper"><table><thead><tr><th>Interval</th><th>Usage (kWh)</th></tr></thead><tbody>{% for item in chart_values %}<tr><td>{{ item.label }}</td><td>{{ "{:,}".format(item.total) }}</td></tr>{% endfor %}</tbody></table></div>
+                        </details>
+                    </section>
+
+                    <section class="panel health-panel reveal">
+                            <div class="panel-heading"><div><p class="eyebrow">Account health</p><h2>Grid balance</h2><p>Consumers below the alert threshold</p></div><span class="chip chip-green">{{ healthy_pct }}%</span></div>
+                            <div class="health-visual">
+                                <svg viewBox="0 0 120 120" class="gauge" role="img" aria-label="{{ healthy_pct }} percent of accounts healthy">
+                                    <defs><linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#22d3ee"/><stop offset="55%" stop-color="#818cf8"/><stop offset="100%" stop-color="#4ade80"/></linearGradient></defs>
+                                    <circle class="gauge-track" cx="60" cy="60" r="48"></circle>
+                                    <circle class="gauge-fill" cx="60" cy="60" r="48" style="--gauge: {{ healthy_pct }}"></circle>
+                                </svg>
+                                <div class="gauge-center"><strong>{{ healthy_pct }}<small>%</small></strong><span>healthy</span></div>
+                            </div>
+                            <div class="health-rows">
+                                <div><span><i data-lucide="users"></i> Consumers</span><strong>{{ consumer_count }}</strong></div>
+                                <div><span><i data-lucide="cpu"></i> Active meters</span><strong>{{ meter_count }}</strong></div>
+                                <div><span><i data-lucide="gauge"></i> Avg / consumer</span><strong>{{ "{:,}".format(average_consumer_usage) }} <small>kWh</small></strong></div>
+                                <div><span><i data-lucide="clipboard-check"></i> Pending reviews</span><strong class="{{ 'warn' if pending_count else '' }}">{{ pending_count }}</strong></div>
+                                <div><span><i data-lucide="bell-ring"></i> Alert threshold</span><strong>{{ high_usage_threshold }} <small>kWh</small></strong></div>
+                            </div>
+                            <a class="rail-link" href="#alerts">Review account alerts <i data-lucide="arrow-right"></i></a>
+                    </section>
+                </div>
+
+                <div class="dashboard-lower-grid">
+                    <section class="panel activity-panel reveal">
+                        <div class="panel-heading"><div><p class="eyebrow">Live feed</p><h2>Recent activity</h2><p>Latest reading events</p></div><a class="icon-btn icon-btn-sm" href="#readings" aria-label="All readings"><i data-lucide="arrow-up-right"></i></a></div>
+                        <div class="activity-list">
+                            {% for activity in recent_activity[:5] %}
+                            <div class="activity-item">
+                                <span class="activity-dot {{ 'sample' if activity.is_sample else ('warn' if activity.validation_status == 'flagged' else '') }}"></span>
+                                <div class="activity-copy"><strong>{{ activity.name }}</strong><small>{{ activity.meter_code }} · {{ activity.reading_date }}</small></div>
+                                <span class="activity-value">{{ "{:,}".format(activity.calculated_kwh or 0) }} <small>kWh</small></span>
+                            </div>
+                            {% else %}
+                            <div class="empty-inline"><i data-lucide="inbox"></i><p>No readings recorded yet.</p></div>
+                            {% endfor %}
+                        </div>
+                        <a class="rail-link" href="#readings">Open meter readings <i data-lucide="arrow-right"></i></a>
+                    </section>
+                <section class="panel reveal">
+                    <div class="panel-heading">
+                        <div><p class="eyebrow">Customers</p><h2>Consumer spotlight</h2><p>Highest usage accounts at a glance</p></div>
+                        <a class="btn btn-ghost btn-sm" href="#consumers">View all consumers <i data-lucide="arrow-right"></i></a>
+                    </div>
+                    <div class="spotlight-grid">
+                        {% for consumer in top_consumers[:4] %}
+                        <article class="spotlight-card">
+                            <div class="spotlight-top"><span class="consumer-avatar">{{ consumer.name[:1]|upper }}</span><span class="badge {{ 'high' if consumer.consumption >= high_usage_threshold else 'normal' }}">{{ 'High usage' if consumer.consumption >= high_usage_threshold else 'Normal' }}</span></div>
+                            <strong class="spotlight-name">{{ consumer.name }}</strong>
+                            <span class="spotlight-meta">{{ consumer.meter_number }} · {{ consumer.region }}</span>
+                            <div class="spotlight-usage">{{ "{:,}".format(consumer.consumption) }} <small>kWh</small></div>
+                            <div class="spotlight-track"><span style="width: {{ (consumer.consumption * 100 / highest_consumption)|round if highest_consumption else 0 }}%"></span></div>
+                        </article>
+                        {% else %}
+                        <div class="empty-state"><i data-lucide="users"></i><p>No consumers registered yet.</p><button class="btn btn-primary btn-sm operator-only" type="button" data-open-consumer><i data-lucide="plus"></i> Add your first consumer</button></div>
+                        {% endfor %}
+                    </div>
+                </section>
+                </div>
+            </section>
+
+            <!-- ═══════════════ ANALYTICS ═══════════════ -->
+            <section class="page-view" id="analytics">
+                <header class="page-head">
+                    <div><p class="eyebrow">Analysis</p><h1>Analytics lab</h1><p class="page-subtitle">Compare consumption across periods, consumers, meters, regions, and data sources.</p></div>
+                    <div class="page-actions"><span class="chip chip-cyan"><i data-lucide="move-3d"></i> Interactive 3D charts</span></div>
+                </header>
+                <form class="filter-bar panel" action="/" method="get">
+                    <input type="hidden" name="view" value="analytics">
+                    <label>Period<select name="period"><option value="week" {{ 'selected' if selected_period == 'week' else '' }}>Last 7 days</option><option value="month" {{ 'selected' if selected_period == 'month' else '' }}>This month</option><option value="last_month" {{ 'selected' if selected_period == 'last_month' else '' }}>Last month</option><option value="year" {{ 'selected' if selected_period == 'year' else '' }}>This year</option></select></label>
+                    <label>Consumer<select name="consumer_id"><option value="">All consumers</option>{% for item in consumer_options %}<option value="{{ item.id }}" {{ 'selected' if selected_consumer_id == item.id else '' }}>{{ item.name }}</option>{% endfor %}</select></label>
+                    <label>Region<select name="region"><option value="">All regions</option>{% for item in region_options %}<option value="{{ item.region }}" {{ 'selected' if selected_region == item.region else '' }}>{{ item.region }}</option>{% endfor %}</select></label>
+                    <label>Type<select name="consumer_type"><option value="">All types</option>{% for item in consumer_type_options %}<option value="{{ item.consumer_type }}" {{ 'selected' if selected_consumer_type == item.consumer_type else '' }}>{{ item.consumer_type }}</option>{% endfor %}</select></label>
+                    <label>Source<select name="source"><option value="all" {{ 'selected' if source_filter == 'all' else '' }}>All sources</option><option value="recorded" {{ 'selected' if source_filter == 'recorded' else '' }}>Recorded</option><option value="sample" {{ 'selected' if source_filter == 'sample' else '' }}>Sample</option></select></label>
+                    <label>Compare<select name="compare_by"><option value="consumer" {{ 'selected' if compare_by == 'consumer' else '' }}>Consumers</option><option value="meter" {{ 'selected' if compare_by == 'meter' else '' }}>Meters</option></select></label>
+                    <label>Meter<select name="meter_id"><option value="">All meters</option>{% for item in all_meters %}<option value="{{ item.meter_id }}" {{ 'selected' if selected_meter_id == item.meter_id else '' }}>{{ item.name }} · {{ item.meter_code }}</option>{% endfor %}</select></label>
+                    <button class="btn btn-primary" type="submit"><i data-lucide="sliders-horizontal"></i> Apply filters</button>
+                </form>
+                <div class="analytics-kpis">
+                    <article class="mini-kpi"><span>Period total</span><strong id="analytics-total">—</strong></article>
+                    <article class="mini-kpi"><span>Average / interval</span><strong id="analytics-average">—</strong></article>
+                    <article class="mini-kpi"><span>Peak interval</span><strong id="analytics-peak">—</strong></article>
+                    <article class="mini-kpi"><span>Compared entities</span><strong id="analytics-entities">—</strong></article>
+                </div>
+                <div class="analytics-grid">
+                    <section class="panel reveal">
+                        <div class="panel-heading"><div><p class="eyebrow">Trend</p><h2>{{ chart_title }}</h2><p>Hover the chart to inspect exact usage.</p></div><span class="chip chip-violet">kWh</span></div>
+                        {% if chart_is_empty %}<p class="chart-empty">{{ chart_empty_message }}</p>{% endif %}
+                        <div class="chart-canvas-wrap tall"><canvas id="analytics-trend" aria-label="Usage trend chart" role="img"></canvas><div class="chart-tooltip" id="trend-tooltip"></div></div>
+                        <details class="chart-data" id="trend-table"><summary>View trend data as a table</summary><div class="table-wrapper"><table><thead><tr><th>Interval</th><th>Usage (kWh)</th></tr></thead><tbody id="trend-table-body"></tbody></table></div></details>
+                    </section>
+                    <section class="panel reveal">
+                        <div class="panel-heading"><div><p class="eyebrow">Comparison</p><h2>{{ comparison_title }}</h2><p>Ranked across the selected period.</p></div><span class="chip chip-cyan">{{ 'Meters' if compare_by == 'meter' else 'Consumers' }}</span></div>
+                        <div class="chart-canvas-wrap tall"><canvas id="analytics-compare" aria-label="{{ comparison_title }} chart" role="img"></canvas><div class="chart-tooltip" id="compare-tooltip"></div></div>
+                        <details class="chart-data" id="compare-table"><summary>View comparison data as a table</summary><div class="table-wrapper"><table><thead><tr><th>Entity</th><th>Usage (kWh)</th></tr></thead><tbody id="compare-table-body"></tbody></table></div></details>
+                    </section>
+                </div>
+                <p class="chart-footnote"><i data-lucide="info"></i> Usage is estimated from valid consecutive readings. This is not an official billing calculation.</p>
+            </section>
+
+            <!-- ═══════════════ ALERTS ═══════════════ -->
+            <section class="page-view" id="alerts">
+                <header class="page-head">
+                    <div><p class="eyebrow">Monitoring</p><h1>Alerts & signals</h1><p class="page-subtitle">Accounts at or above your threshold, plus the notification timeline.</p></div>
+                    <div class="page-actions"><span class="chip {{ 'chip-rose' if high_usage_count else 'chip-green' }}"><i data-lucide="{{ 'triangle-alert' if high_usage_count else 'shield-check' }}"></i> {{ high_usage_count }} active</span>{% if unread_alerts %}<form action="{{ url_for('mark_alerts_read') }}" method="post" class="admin-only"><button class="btn btn-ghost btn-sm" type="submit"><i data-lucide="check-check"></i> Mark all read</button></form>{% endif %}</div>
+                </header>
+                <div class="alerts-grid">
+                    <div class="alerts-main">
+                        <section class="panel">
+                            <div class="panel-heading"><div><p class="eyebrow">Threshold</p><h2>High usage alerts</h2><p>Consumers at or above {{ "{:,}".format(high_usage_threshold) }} kWh</p></div><span class="alert-count">{{ high_usage_count }} active</span></div>
+                            <form class="inline-form admin-only" action="{{ url_for('update_threshold') }}" method="post">
+                                <label for="threshold-kwh">Alert threshold <span>kWh</span></label>
+                                <input id="threshold-kwh" name="threshold_kwh" type="number" min="1" step="1" value="{{ high_usage_threshold }}" required>
+                                <button class="btn btn-primary" type="submit"><i data-lucide="save"></i> Save threshold</button>
+                            </form>
+                            <div class="alert-list">
+                                {% for consumer in high_usage_consumers %}
+                                <div class="alert-item"><span class="alert-symbol"><i data-lucide="triangle-alert"></i></span><div><h3>{{ consumer.name }}</h3><p>{{ consumer.meter_number }} · {{ "{:,}".format(consumer.consumption) }} kWh</p></div><a class="icon-btn icon-btn-sm" href="/?history={{ consumer.id }}#history" aria-label="View {{ consumer.name }} history"><i data-lucide="arrow-up-right"></i></a></div>
+                                {% else %}
+                                <div class="overview-empty"><span class="overview-empty-icon"><i data-lucide="circle-check"></i></span><div><strong>All clear</strong><p>No consumers currently exceed the alert threshold.</p></div></div>
+                                {% endfor %}
+                            </div>
+                        </section>
+                        <section class="panel">
+                            <div class="panel-heading"><div><p class="eyebrow">Activity log</p><h2>Recent notifications</h2><p>Signals generated while readings were recorded.</p></div></div>
+                            <div class="timeline">
+                                {% for alert in alert_history %}
+                                <article class="timeline-item">
+                                    <span class="timeline-dot {{ 'warning' if not alert.is_read else '' }}"></span>
+                                    <div class="timeline-content"><strong>{{ alert.name or 'ElectroTrack' }}</strong><small>{{ alert.message }}</small></div>
+                                    <span class="timeline-time">{{ alert.created_at }}</span>
+                                </article>
+                                {% else %}
+                                <p class="review-empty">No notifications have been recorded.</p>
+                                {% endfor %}
+                            </div>
+                        </section>
+                    </div>
+                    <aside class="alerts-side">
+                        <section class="panel tip-card">
+                            <span class="tip-icon"><i data-lucide="sparkles"></i></span>
+                            <h3>Tune your signal</h3>
+                            <p>Thresholds apply to each account's latest calculated usage. Lower them to surface anomalies earlier; raise them if normal peaks trigger noise.</p>
+                            <div class="tip-facts"><span><strong>{{ high_usage_threshold }}</strong> alert threshold</span><span><strong>{{ reading_review_threshold }}</strong> review threshold</span></div>
+                        </section>
+                        <section class="panel">
+                            <div class="panel-heading"><div><p class="eyebrow">CO₂</p><h2>Emissions pulse</h2></div></div>
+                            <div class="emission-orbit"><span class="emission-value">{{ co2_month_kg }}<small>kg</small></span><span class="emission-label">this month</span></div>
+                            <p class="chart-footnote">Using {{ co2_factor }} kg CO₂ per kWh. Year to date: {{ "{:,}".format(co2_year_kg) }} kg.</p>
+                        </section>
+                    </aside>
+                </div>
+            </section>
+
+            <!-- ═══════════════ CONSUMERS ═══════════════ -->
+            <section class="page-view" id="consumers">
+                <header class="page-head">
+                    <div><p class="eyebrow">Customers</p><h1>Consumers</h1><p class="page-subtitle">Manage consumer profiles, contact details, tariffs, and usage history.</p></div>
+                    <div class="page-actions"><button class="btn btn-primary operator-only" id="add-consumer" type="button" data-open-consumer><i data-lucide="plus"></i> Add consumer</button></div>
+                </header>
+                <section class="panel">
+                    <div class="table-controls">
+                        <label class="search-field"><i data-lucide="search"></i><span class="visually-hidden">Search consumers</span><input id="consumer-search" type="search" placeholder="Search name, ID, meter, or region…" autocomplete="off"></label>
+                        <div class="control-right">
+                            <label class="filter-field"><span class="visually-hidden">Filter by status</span><select id="consumer-filter"><option value="all">All statuses</option><option value="high">High usage</option><option value="normal">Normal</option></select></label>
+                            <span class="table-count" id="consumer-count">{{ consumers|length }} accounts</span>
+                        </div>
+                    </div>
+                    <div class="table-wrapper"><table class="data-table" id="consumer-table"><thead><tr><th>Consumer ID</th><th data-sort="name">Name <i data-lucide="chevrons-up-down"></i></th><th>Type</th><th>Region</th><th>Meters</th><th data-sort="usage">Current usage <i data-lucide="chevrons-up-down"></i></th><th>Status</th><th>Actions</th></tr></thead><tbody>
+                        {% for consumer in consumers %}
+                        <tr class="consumer-row" data-status="{{ 'high' if consumer.consumption >= high_usage_threshold else 'normal' }}" data-sort-text="{{ consumer.name|lower }}" data-sort-value="{{ consumer.consumption }}">
+                            <td class="consumer-id">ET{{ '%04d'|format(consumer.id + 1000) }}</td>
+                            <td><div class="table-person"><span class="consumer-avatar sm">{{ consumer.name[:1]|upper }}</span><div><strong>{{ consumer.name }}</strong>{% if consumer.phone or consumer.email %}<small>{{ consumer.phone or consumer.email }}</small>{% endif %}</div></div></td>
+                            <td><span class="type-pill">{{ consumer.consumer_type }}</span></td>
+                            <td>{{ consumer.region }}</td>
+                            <td class="mono">{{ consumer.meter_number }}</td>
+                            <td><strong>{{ "{:,}".format(consumer.consumption) }}</strong> <small>kWh</small></td>
+                            <td><span class="badge {{ 'high' if consumer.consumption >= high_usage_threshold else 'normal' }}">{{ 'High usage' if consumer.consumption >= high_usage_threshold else 'Normal' }}</span></td>
+                            <td><div class="row-actions">
+                                <button class="icon-btn icon-btn-sm edit-consumer operator-only" type="button" aria-label="Edit {{ consumer.name }}" title="Edit" data-id="{{ consumer.id }}" data-name="{{ consumer.name }}" data-type="{{ consumer.consumer_type }}" data-region="{{ consumer.region }}" data-phone="{{ consumer.phone or '' }}" data-email="{{ consumer.email or '' }}" data-address="{{ consumer.address or '' }}" data-notes="{{ consumer.notes or '' }}" data-tariff="{{ consumer.tariff_id or '' }}"><i data-lucide="pencil"></i></button>
+                                <a class="icon-btn icon-btn-sm" href="/?history={{ consumer.id }}#history" aria-label="View {{ consumer.name }} history" title="History"><i data-lucide="history"></i></a>
+                                <form action="{{ url_for('delete_consumer', consumer_id=consumer.id) }}" method="post" class="delete-form operator-only"><button class="icon-btn icon-btn-sm danger" type="submit" aria-label="Delete {{ consumer.name }}" title="Delete"><i data-lucide="trash-2"></i></button></form>
+                            </div></td>
+                        </tr>
+                        {% else %}<tr><td colspan="8" class="empty-state"><i data-lucide="users"></i><p>No consumers registered yet.</p></td></tr>{% endfor %}
+                        <tr id="no-search-results" hidden><td colspan="8" class="empty-state">No consumers match these filters.</td></tr>
+                    </tbody></table></div>
+                </section>
+            </section>
+
+            <!-- ═══════════════ METERS ═══════════════ -->
+            <section class="page-view" id="meters">
+                <header class="page-head">
+                    <div><p class="eyebrow">Meter inventory</p><h1>Meters</h1><p class="page-subtitle">Track every physical meter, its phase, and connection capacity.</p></div>
+                    <div class="page-actions"><span class="chip chip-cyan"><i data-lucide="cpu"></i> {{ meter_count }} meters · {{ "{:,.1f}".format(total_capacity_kw) }} kW</span><button class="btn btn-primary operator-only" id="add-meter" type="button"><i data-lucide="plus"></i> Add meter</button></div>
+                </header>
+                <section class="panel">
+                    <div class="table-wrapper"><table class="data-table"><thead><tr><th>Consumer</th><th>Type</th><th>Meter code</th><th>Connection</th><th>Capacity</th><th>Region</th><th>Actions</th></tr></thead><tbody>
+                        {% for meter in all_meters %}
+                        <tr>
+                            <td><div class="table-person"><span class="consumer-avatar sm">{{ meter.name[:1]|upper }}</span><div><strong>{{ meter.name }}</strong><small>{{ meter.consumer_type }}</small></div></div></td>
+                            <td><span class="type-pill">{{ meter.meter_type }}</span></td>
+                            <td class="mono">{{ meter.meter_code }}</td>
+                            <td><span class="badge baseline">{{ meter.phase }} phase</span></td>
+                            <td>{% if meter.capacity_kw %}{{ meter.capacity_kw }} <small>kW</small>{% else %}<span class="muted">—</span>{% endif %}</td>
+                            <td>{{ meter.region }}</td>
+                            <td><div class="row-actions">
+                                <button class="icon-btn icon-btn-sm edit-meter operator-only" type="button" aria-label="Edit meter {{ meter.meter_code }}" title="Edit" data-id="{{ meter.meter_id }}" data-code="{{ meter.meter_code }}" data-type="{{ meter.meter_type }}" data-phase="{{ meter.phase }}" data-capacity="{{ meter.capacity_kw if meter.capacity_kw is not none else '' }}"><i data-lucide="pencil"></i></button>
+                                <form action="{{ url_for('delete_meter', meter_id=meter.meter_id) }}" method="post" class="delete-meter-form operator-only"><button class="icon-btn icon-btn-sm danger" type="submit" aria-label="Delete meter {{ meter.meter_code }}" title="Delete"><i data-lucide="trash-2"></i></button></form>
+                            </div></td>
+                        </tr>
+                        {% else %}<tr><td colspan="7" class="empty-state"><i data-lucide="cpu"></i><p>No meters registered.</p></td></tr>{% endfor %}
+                    </tbody></table></div>
+                    <p class="chart-footnote"><i data-lucide="shield-check"></i> Meters with saved readings are retained to preserve their history.</p>
+                </section>
+            </section>
+
+            <!-- ═══════════════ HISTORY ═══════════════ -->
+            <section class="page-view" id="history">
+                {% if history_consumer %}
+                <header class="page-head">
+                    <div><p class="eyebrow">Consumer history</p><h1>{{ history_consumer.name }}</h1><p class="page-subtitle">{{ history_consumer.consumer_type }} · {{ history_consumer.region }} · estimated usage by reading date</p></div>
+                    <div class="page-actions"><a class="btn btn-ghost" href="#consumers"><i data-lucide="arrow-left"></i> Back to consumers</a></div>
+                </header>
+                <section class="panel">
+                    <form class="filter-bar inline" action="/" method="get">
+                        <input type="hidden" name="history" value="{{ history_consumer.id }}">
+                        <label>Meter<select name="history_meter_id"><option value="">All meters</option>{% for meter in history_meters %}<option value="{{ meter.meter_id }}" {{ 'selected' if selected_history_meter_id == meter.meter_id else '' }}>{{ meter.meter_code }}</option>{% endfor %}</select></label>
+                        <label>From<input type="date" name="history_start" value="{{ history_start }}"></label>
+                        <label>To<input type="date" name="history_end" value="{{ history_end }}"></label>
+                        <button class="btn btn-primary" type="submit"><i data-lucide="filter"></i> Filter history</button>
+                        <a class="btn btn-ghost" href="/?history={{ history_consumer.id }}#history">Clear</a>
+                    </form>
+                    {% if history_chartjs != 'null' %}
+                    <div class="chart-canvas-wrap tall"><canvas id="history-chart" aria-label="Sample and recorded usage history for {{ history_consumer.name }}" role="img"></canvas><div class="chart-tooltip" id="history-tooltip"></div></div>
+                    <div class="chart-legend"><span class="legend-item"><i class="legend-swatch cyan"></i> Recorded</span><span class="legend-item"><i class="legend-swatch violet"></i> Sample</span></div>
+                    {% else %}<p class="review-empty">No valid dated usage history matches these filters.</p>{% endif %}
+                    <div class="table-wrapper history-table"><table class="data-table"><thead><tr><th>Date</th><th>Meter</th><th>Usage</th><th>Source</th></tr></thead><tbody>{% for entry in history_rows %}<tr><td class="mono">{{ entry.reading_date }}</td><td class="mono">{{ entry.meter_code or '—' }}</td><td><strong>{{ "{:,}".format(entry.consumption or 0) }}</strong> <small>kWh</small></td><td><span class="badge {{ 'baseline' if entry.is_sample else 'normal' }}">{{ 'Sample' if entry.is_sample else 'Recorded' }}</span></td></tr>{% else %}<tr><td colspan="4" class="empty-state">No readings match this meter and date range.</td></tr>{% endfor %}</tbody></table></div>
+                </section>
+                {% else %}
+                <div class="empty-state panel"><i data-lucide="history"></i><h2>No consumer selected</h2><p>Select History from the Consumers list to view an individual usage chart.</p><a class="btn btn-primary" href="#consumers">Browse consumers</a></div>
+                {% endif %}
+            </section>
+
+            <!-- ═══════════════ READINGS ═══════════════ -->
+            <section class="page-view" id="readings">
+                <header class="page-head">
+                    <div><p class="eyebrow">Meter data</p><h1>Meter readings</h1><p class="page-subtitle">Record cumulative values, import CSV batches, and review unusual usage.</p></div>
+                    <div class="page-actions"><span class="chip {{ 'chip-amber' if pending_count else 'chip-green' }}"><i data-lucide="clipboard-check"></i> {{ pending_count }} pending review{{ '' if pending_count == 1 else 's' }}</span><button class="btn btn-primary operator-only" id="add-reading" type="button" data-open-reading><i data-lucide="plus"></i> Record reading</button></div>
+                </header>
+
+                <section class="panel reveal">
+                    <div class="panel-heading"><div><p class="eyebrow">Quality gate</p><h2>Pending reading reviews</h2><p>Flagged records stay out of usage totals until a decision is made.</p></div><span class="alert-count">{{ pending_reviews|length }} pending</span></div>
+                    {% if pending_reviews %}
+                    <div class="table-wrapper"><table class="data-table"><thead><tr><th>Date</th><th>Consumer / meter</th><th>Reading</th><th>Calculated usage</th><th>Reason</th><th>Decision</th></tr></thead><tbody>{% for reading in pending_reviews %}<tr><td class="mono">{{ reading.reading_date }}</td><td><strong>{{ reading.name }}</strong><small class="validation-note">{{ reading.meter_number }}</small></td><td>{{ "{:,}".format(reading.cumulative_kwh) }} kWh</td><td>{% if reading.calculated_kwh is not none %}{{ "{:,}".format(reading.calculated_kwh) }} kWh{% else %}<span class="muted">Not calculated</span>{% endif %}</td><td><span class="badge high">{{ 'Possible reset / rollover' if reading.review_type == 'meter_reset' else 'Unusually large increase' }}</span><small class="validation-note">{{ reading.validation_note }}</small></td><td><div class="review-actions operator-only"><form action="{{ url_for('review_reading', reading_id=reading.id) }}" method="post"><button class="review-approve" name="decision" value="approve" type="submit"><i data-lucide="check"></i> Approve</button></form><form action="{{ url_for('review_reading', reading_id=reading.id) }}" method="post"><button class="review-reject" name="decision" value="reject" type="submit"><i data-lucide="x"></i> Reject</button></form></div></td></tr>{% endfor %}</tbody></table></div>
+                    {% else %}<p class="review-empty"><i data-lucide="circle-check"></i> No readings are waiting for review.</p>{% endif %}
+                </section>
+
+                <div class="readings-grid">
+                    <section class="panel reveal operator-only">
+                        <div class="panel-heading"><div><p class="eyebrow">Bulk ingest</p><h2>Import readings from CSV</h2><p>Use <code>meter_code</code>, <code>reading_date</code>, and <code>cumulative_kwh</code> columns.</p></div><a class="text-link" href="{{ url_for('download_readings_csv_template') }}"><i data-lucide="download"></i> Template</a></div>
+                        <form class="csv-import-form" action="{{ url_for('import_readings_csv') }}" method="post" enctype="multipart/form-data">
+                            <label class="dropzone" id="csv-dropzone" for="readings-csv">
+                                <span class="dropzone-icon"><i data-lucide="cloud-upload"></i></span>
+                                <strong>Drop a CSV here or browse</strong>
+                                <small>Up to 1,000 rows · oldest to newest per meter</small>
+                                <input id="readings-csv" name="readings_csv" type="file" accept=".csv,text/csv" required>
+                                <span class="dropzone-file" id="csv-file-name" hidden></span>
+                            </label>
+                            <button class="btn btn-primary" type="submit"><i data-lucide="upload"></i> Validate and import</button>
+                        </form>
+                    </section>
+                    <section class="panel reveal">
+                        <div class="panel-heading"><div><p class="eyebrow">Guardrails</p><h2>Review thresholds</h2><p>Large increases are held for approval before they affect totals.</p></div></div>
+                        <form class="inline-form stacked admin-only" action="{{ url_for('update_reading_review_threshold') }}" method="post">
+                            <label for="reading-review-threshold">Unusual usage review <span>kWh per interval</span></label>
+                            <input id="reading-review-threshold" name="reading_review_threshold_kwh" type="number" min="1" step="1" value="{{ reading_review_threshold }}" required>
+                            <button class="btn btn-primary" type="submit"><i data-lucide="save"></i> Save threshold</button>
+                        </form>
+                        <div class="rules-list">
+                            <div><i data-lucide="arrow-down-up"></i><span>A decrease is flagged as a possible reset or rollover.</span></div>
+                            <div><i data-lucide="calendar-clock"></i><span>Readings must be dated after the latest saved reading.</span></div>
+                            <div><i data-lucide="lock"></i><span>Pending readings block new entries for that meter.</span></div>
+                        </div>
+                    </section>
+                </div>
+
+                <section class="panel reveal">
+                    <div class="panel-heading"><div><p class="eyebrow">Ledger</p><h2>Recent readings</h2><p>The 20 most recent entries across every meter.</p></div><a class="btn btn-ghost btn-sm" href="#reports">Reports <i data-lucide="arrow-right"></i></a></div>
+                    <div class="table-wrapper"><table class="data-table"><thead><tr><th>Date</th><th>Consumer</th><th>Meter</th><th>Cumulative value</th><th>Calculated usage</th><th>Validation</th></tr></thead><tbody>
+                        {% for reading in recent_readings %}<tr><td class="mono">{{ reading.reading_date }}</td><td>{{ reading.name }}</td><td class="mono">{{ reading.meter_number }}</td><td>{% if reading.reading_type == 'cumulative' %}{{ "{:,}".format(reading.cumulative_kwh) }} kWh{% else %}<span class="muted">Legacy usage entry</span>{% endif %}</td><td>{% if reading.reading_type == 'cumulative' and reading.calculated_kwh is not none %}{{ "{:,}".format(reading.calculated_kwh) }} kWh{% elif reading.reading_type == 'usage' %}{{ "{:,}".format(reading.consumption) }} kWh{% else %}<span class="muted">—</span>{% endif %}</td><td><div class="badge-row">{% if reading.is_sample %}<span class="badge baseline">Sample</span>{% endif %}{% if reading.reading_type == 'usage' %}<span class="badge legacy">Legacy</span>{% elif reading.validation_status == 'flagged' %}<span class="badge high">Flagged</span>{% elif reading.validation_status == 'rejected' %}<span class="badge legacy">Rejected</span>{% elif reading.validation_status == 'baseline' %}<span class="badge baseline">Baseline</span>{% else %}<span class="badge normal">Valid</span>{% endif %}</div>{% if reading.validation_note %}<small class="validation-note">{{ reading.validation_note }}</small>{% endif %}</td></tr>{% else %}<tr><td colspan="6" class="empty-state">No meter readings yet.</td></tr>{% endfor %}
+                    </tbody></table></div>
+                </section>
+            </section>
+
+            <!-- ═══════════════ BILLING ═══════════════ -->
+            <section class="page-view" id="billing">
+                <header class="page-head">
+                    <div><p class="eyebrow">Estimates</p><h1>Billing & tariffs</h1><p class="page-subtitle">Estimated charges for {{ prev_month_str }} using saved readings and assigned tariffs.</p></div>
+                    <div class="page-actions"><a class="btn btn-primary" href="{{ url_for('download_billing_report') }}"><i data-lucide="download"></i> Download billing CSV</a></div>
+                </header>
+                <div class="billing-grid">
+                    <article class="billing-kpi reveal"><span class="billing-kpi-icon green"><i data-lucide="wallet"></i></span><div class="billing-kpi-body"><span>Estimated total</span><strong>{{ currency }}{{ '{:,.2f}'.format(billing_estimated_total) }}</strong><small>Across consumers with an assigned tariff</small></div></article>
+                    <article class="billing-kpi reveal"><span class="billing-kpi-icon cyan"><i data-lucide="leaf"></i></span><div class="billing-kpi-body"><span>Current-month CO₂</span><strong>{{ co2_month_kg }} <small>kg</small></strong><small>{{ co2_factor }} kg per kWh · {{ co2_trees_year }} trees to offset yearly</small></div></article>
+                    <article class="billing-kpi reveal"><span class="billing-kpi-icon violet"><i data-lucide="receipt-text"></i></span><div class="billing-kpi-body"><span>Tariff plans</span><strong>{{ tariffs|length }}</strong><small>Reusable rate cards</small></div></article>
+                </div>
+                <section class="panel">
+                    <div class="panel-heading"><div><p class="eyebrow">Rate cards</p><h2>Tariff plans</h2><p>Set energy rates, fixed fees, and tax used for estimates.</p></div></div>
+                    <form class="tariff-form admin-only" action="{{ url_for('add_tariff') }}" method="post">
+                        <div class="form-group"><label for="tariff-name">Tariff name</label><input id="tariff-name" name="name" maxlength="80" placeholder="e.g. Residential Standard" required></div>
+                        <div class="form-group"><label for="tariff-type">Consumer type</label><select id="tariff-type" name="consumer_type"><option>Residential</option><option>Commercial</option><option>Industrial</option><option>Agricultural</option></select></div>
+                        <div class="form-group"><label for="tariff-rate">Rate per kWh ({{ currency }})</label><input id="tariff-rate" name="rate_per_kwh" type="number" min="0" step="0.01" value="5.50" required></div>
+                        <div class="form-group"><label for="tariff-fixed">Fixed charge ({{ currency }})</label><input id="tariff-fixed" name="fixed_charge" type="number" min="0" step="0.01" value="0" required></div>
+                        <div class="form-group"><label for="tariff-tax">Tax (%)</label><input id="tariff-tax" name="tax_percent" type="number" min="0" max="100" step="0.01" value="0" required></div>
+                        <div class="form-group"><label for="tariff-description">Description</label><input id="tariff-description" name="description" maxlength="180" placeholder="Optional details"></div>
+                        <div class="form-actions"><button class="btn btn-primary" type="submit"><i data-lucide="plus"></i> Add tariff</button></div>
+                    </form>
+                    <div class="table-wrapper"><table class="data-table"><thead><tr><th>Plan</th><th>Consumer type</th><th>Rate / kWh</th><th>Fixed charge</th><th>Tax</th><th>Action</th></tr></thead><tbody>{% for tariff in tariffs %}<tr><td><strong>{{ tariff.name }}</strong>{% if tariff.description %}<small class="validation-note">{{ tariff.description }}</small>{% endif %}</td><td><span class="type-pill">{{ tariff.consumer_type }}</span></td><td>{{ currency }}{{ '%.2f'|format(tariff.rate_per_kwh) }}</td><td>{{ currency }}{{ '%.2f'|format(tariff.fixed_charge) }}</td><td>{{ '%.2f'|format(tariff.tax_percent) }}%</td><td><form action="{{ url_for('delete_tariff', tariff_id=tariff.id) }}" method="post" class="delete-tariff-form admin-only"><button class="icon-btn icon-btn-sm danger" type="submit" aria-label="Delete tariff {{ tariff.name }}" title="Delete"><i data-lucide="trash-2"></i></button></form></td></tr>{% else %}<tr><td colspan="6" class="empty-state">No tariff plans have been added.</td></tr>{% endfor %}</tbody></table></div>
+                </section>
+                <section class="panel">
+                    <div class="panel-heading"><div><p class="eyebrow">Per account</p><h2>Consumer billing estimates</h2><p>Assign a tariff to include a consumer in the estimated total. These figures are not official bills.</p></div></div>
+                    <div class="table-wrapper"><table class="data-table"><thead><tr><th>Consumer</th><th>Meter(s)</th><th>Usage</th><th>Assigned tariff</th><th>Estimate</th><th>Update</th></tr></thead><tbody>{% for row in billing_rows %}<tr><td><div class="table-person"><span class="consumer-avatar sm">{{ row.name[:1]|upper }}</span><div><strong>{{ row.name }}</strong><small>{{ row.consumer_type }}</small></div></div></td><td class="mono">{{ row.meter_number }}</td><td>{{ '{:,}'.format(row.monthly_kwh) }} kWh</td><td>{% if row.tariff %}<span class="badge normal">{{ row.tariff.name }}</span>{% else %}<span class="badge flagged">Not assigned</span>{% endif %}</td><td>{% if row.tariff %}<strong>{{ currency }}{{ '{:,.2f}'.format(row.total_charge) }}</strong>{% else %}<span class="muted">—</span>{% endif %}</td><td><form class="meter-inline-form admin-only" action="{{ url_for('assign_consumer_tariff', consumer_id=row.id) }}" method="post"><select name="tariff_id" aria-label="Tariff for {{ row.name }}"><option value="">No tariff</option>{% for tariff in tariffs %}<option value="{{ tariff.id }}" {{ 'selected' if row.tariff_id == tariff.id else '' }}>{{ tariff.name }}</option>{% endfor %}</select><button class="text-button" type="submit">Save</button></form></td></tr>{% else %}<tr><td colspan="6" class="empty-state">No consumers to estimate.</td></tr>{% endfor %}</tbody></table></div>
+                    <p class="chart-footnote"><i data-lucide="info"></i> Estimates use the previous complete month, the assigned rate, fixed charge, and tax. They are for analysis only and do not replace official billing.</p>
+                </section>
+            </section>
+
+            <!-- ═══════════════ REPORTS ═══════════════ -->
+            <section class="page-view" id="reports">
+                <header class="page-head">
+                    <div><p class="eyebrow">Reporting</p><h1>Reports & backups</h1><p class="page-subtitle">Review totals, export data, print a report, or restore a database backup.</p></div>
+                    <div class="page-actions"><a class="btn btn-primary" href="{{ url_for('download_database_backup') }}"><i data-lucide="database"></i> Database backup</a><button class="btn btn-ghost no-print" type="button" onclick="window.print()"><i data-lucide="printer"></i> Print</button></div>
+                </header>
+                <div class="report-summary-grid">
+                    <article class="report-stat reveal"><span>Saved reading records</span><strong data-counter="{{ report_summary.reading_count or 0 }}">0</strong></article>
+                    <article class="report-stat reveal"><span>Calculated usage</span><strong data-counter="{{ report_summary.valid_usage or 0 }}">0</strong><small>kWh</small></article>
+                    <article class="report-stat reveal"><span>Pending reviews</span><strong data-counter="{{ report_summary.pending_count or 0 }}">0</strong></article>
+                    <article class="report-stat reveal"><span>Sample records</span><strong data-counter="{{ report_summary.sample_count or 0 }}">0</strong></article>
+                </div>
+                <section class="panel">
+                    <div class="panel-heading"><div><p class="eyebrow">Monthly digest</p><h2>Monthly usage · {{ today[:4] }}</h2><p>Usage from valid consecutive readings; values are in kWh.</p></div><a class="btn btn-ghost btn-sm" href="{{ url_for('download_monthly_consumption_report') }}"><i data-lucide="download"></i> Download CSV</a></div>
+                    <div class="table-wrapper"><table class="data-table"><thead><tr><th>Month</th><th>Valid usage</th><th>Reading records</th></tr></thead><tbody>{% for month in report_monthly_rows %}<tr><td class="mono">{{ month.month }}</td><td><strong>{{ "{:,}".format(month.usage or 0) }}</strong> <small>kWh</small></td><td>{{ month.reading_count }}</td></tr>{% else %}<tr><td colspan="3" class="empty-state">No reading records for this year yet.</td></tr>{% endfor %}</tbody></table></div>
+                </section>
+                <div class="reports-grid">
+                    <article class="report-card"><span class="report-icon"><i data-lucide="users"></i></span><div class="report-copy"><h3>Consumer report</h3><p>Consumers, meters, current usage, and status.</p></div><a class="btn btn-ghost btn-sm" href="{{ url_for('download_consumers_report') }}"><i data-lucide="download"></i> CSV</a></article>
+                    <article class="report-card"><span class="report-icon"><i data-lucide="gauge"></i></span><div class="report-copy"><h3>Meter readings report</h3><p>Cumulative values, calculated usage, and validation notes.</p></div><a class="btn btn-ghost btn-sm" href="{{ url_for('download_readings_report') }}"><i data-lucide="download"></i> CSV</a></article>
+                    <article class="report-card"><span class="report-icon"><i data-lucide="shield-check"></i></span><div class="report-copy"><h3>Reading validation report</h3><p>Chronology, baselines, reset flags, and sample labels.</p></div><a class="btn btn-ghost btn-sm" href="{{ url_for('download_validation_report') }}"><i data-lucide="download"></i> CSV</a></article>
+                    <article class="report-card"><span class="report-icon"><i data-lucide="chart-no-axes-combined"></i></span><div class="report-copy"><h3>Monthly consumption report</h3><p>Monthly kWh totals for consumers and meters.</p></div><a class="btn btn-ghost btn-sm" href="{{ url_for('download_monthly_consumption_report') }}"><i data-lucide="download"></i> CSV</a></article>
+                </div>
+                <form class="restore-backup-form panel admin-only" action="{{ url_for('restore_database_backup') }}" method="post" enctype="multipart/form-data">
+                    <div class="restore-copy"><span class="report-icon danger"><i data-lucide="database-backup"></i></span><div><h3>Restore a database backup</h3><p>Restoring replaces current records. ElectroTrack saves a timestamped safety copy first.</p></div></div>
+                    <label class="restore-file">Backup file<input type="file" name="backup_file" accept=".db,.sqlite,.sqlite3" required></label>
+                    <label class="restore-confirm"><input type="checkbox" name="confirm_restore" value="yes" required><span>I understand this replaces the current database.</span></label>
+                    <button class="btn btn-danger" type="submit"><i data-lucide="rotate-ccw"></i> Restore backup</button>
+                </form>
+            </section>
+
+            <!-- ═══════════════ SETTINGS ═══════════════ -->
+            <section class="page-view" id="settings">
+                <header class="page-head">
+                    <div><p class="eyebrow">Preferences</p><h1>Settings</h1><p class="page-subtitle">Configure organization identity, currency, and carbon estimation.</p></div>
+                    <div class="page-actions"><span class="chip chip-violet"><i data-lucide="hard-drive"></i> Local-first</span></div>
+                </header>
+                <div class="settings-grid">
+                    <section class="panel">
+                        <div class="panel-heading"><div><p class="eyebrow">Identity</p><h2>General settings</h2><p>These values appear across dashboards and exports.</p></div></div>
+                        <form class="settings-general-form admin-only" action="{{ url_for('update_general_settings') }}" method="post">
+                            <label>Organization name<input name="org_name" maxlength="100" value="{{ org_name }}" required></label>
+                            <label>Currency symbol<input name="currency_symbol" maxlength="6" value="{{ currency }}" required></label>
+                            <label>CO₂ kg per kWh<input name="co2_kg_per_kwh" type="number" min="0" step="0.001" value="{{ co2_factor }}" required></label>
+                            <button class="btn btn-primary" type="submit"><i data-lucide="save"></i> Save settings</button>
+                        </form>
+                    </section>
+                    <section class="panel">
+                        <div class="panel-heading"><div><p class="eyebrow">Thresholds</p><h2>Signal tuning</h2><p>Controls when alerts and reviews are raised.</p></div></div>
+                        <div class="settings-card"><div class="settings-card-label"><strong>High usage alert threshold</strong><p>Consumers at or above this kWh amount appear in Alerts.</p></div><strong>{{ '{:,}'.format(high_usage_threshold) }} <small>kWh</small></strong><a class="rail-link" href="#alerts">Change in Alerts <i data-lucide="arrow-right"></i></a></div>
+                        <div class="settings-card"><div class="settings-card-label"><strong>Reading review threshold</strong><p>Large increases are held for review before affecting totals.</p></div><strong>{{ '{:,}'.format(reading_review_threshold) }} <small>kWh</small></strong><a class="rail-link" href="#readings">Change in Meter readings <i data-lucide="arrow-right"></i></a></div>
+                    </section>
+                    <section class="panel">
+                        <div class="panel-heading"><div><p class="eyebrow">Account protection</p><h2>Password recovery</h2><p>Choose a question you can answer later. Your answer is stored as a one-way hash.</p></div></div>
+                        <form class="settings-general-form" action="{{ url_for('update_security_question') }}" method="post">
+                            <label>Security question<select name="security_question" required><option value="">Choose a question</option>{% for question in security_questions %}<option value="{{ question }}">{{ question }}</option>{% endfor %}</select></label>
+                            <label>Security answer<input name="security_answer" type="text" minlength="3" autocomplete="off" required></label>
+                            <label>Current password<input name="current_password" type="password" autocomplete="current-password" required></label>
+                            <button class="btn btn-primary" type="submit"><i data-lucide="shield-check"></i> Save recovery details</button>
+                        </form>
+                    </section>
+                    <section class="panel account-delete-panel">
+                        <div class="panel-heading"><div><p class="eyebrow">Danger zone</p><h2>Delete this sign-in account</h2><p>This removes only your login. Consumer, meter, and reading records remain in the shared workspace. The last administrator cannot be removed.</p></div></div>
+                        <form class="settings-general-form" action="{{ url_for('delete_account') }}" method="post" onsubmit="return confirm('Delete your ElectroTrack sign-in account? Shared records will remain.');">
+                            <label>Current password<input name="current_password" type="password" autocomplete="current-password" required></label>
+                            <label>Type DELETE to confirm<input name="confirm_delete" type="text" autocomplete="off" required></label>
+                            <button class="btn btn-danger" type="submit"><i data-lucide="user-round-x"></i> Delete my account</button>
+                        </form>
+                    </section>
+                </div>
+                <section class="panel about-card">
+                    <div class="about-mark"><i data-lucide="zap"></i></div>
+                    <div><h3>ElectroTrack 2.0</h3><p>A local-first electricity consumption workspace. Data stays in <code>instance/electrotrack.db</code> and never leaves this machine.</p></div>
+                    <span class="chip chip-cyan">3D interface</span>
+                </section>
+            </section>
+
+            <footer class="site-footer">
+                <span><span class="pulse-ring"></span> ElectroTrack · Electricity consumption analysis</span>
+                <span>{{ org_name }} · Local data only</span>
+            </footer>
+        </main>
+    </div>
+</div>
+
+<!-- ═══════════════ ADD CONSUMER ═══════════════ -->
+<dialog class="modal" id="consumer-dialog" aria-labelledby="dialog-title">
+    <form action="{{ url_for('add_consumer') }}" method="post" class="modal-form">
+        <div class="modal-head"><div><p class="eyebrow">Consumer record</p><h2 id="dialog-title">Add consumer</h2><p>Create the account and its first meter.</p></div><button class="icon-btn modal-close" id="close-dialog" type="button" aria-label="Close"><i data-lucide="x"></i></button></div>
+        <div class="form-grid">
+            <label class="span-2">Consumer name<input id="consumer-name" name="name" maxlength="100" placeholder="e.g. Asha Mehta" required></label>
+            <label>Meter number<input id="meter-number" name="meter_code" maxlength="40" placeholder="e.g. MTR-5005" required></label>
+            <label>Consumer type<select id="consumer-type" name="consumer_type" required><option>Residential</option><option>Commercial</option><option>Industrial</option><option>Agricultural</option></select></label>
+            <label>Region<input id="consumer-region" name="region" maxlength="80" placeholder="e.g. North" required></label>
+            <label>Tariff plan<select id="consumer-tariff" name="tariff_id"><option value="">Assign later</option>{% for tariff in tariffs %}<option value="{{ tariff.id }}">{{ tariff.name }}</option>{% endfor %}</select></label>
+            <label>Phone<input name="phone" maxlength="30" placeholder="Optional"></label>
+            <label>Email<input name="email" type="email" maxlength="120" placeholder="Optional"></label>
+            <label class="span-2">Address<input name="address" maxlength="180" placeholder="Optional service address"></label>
+        </div>
+        <div class="modal-actions"><button class="btn btn-ghost" id="cancel-dialog" type="button">Cancel</button><button class="btn btn-primary" type="submit"><i data-lucide="plus"></i> Save consumer</button></div>
+    </form>
+</dialog>
+
+<!-- ═══════════════ EDIT CONSUMER ═══════════════ -->
+<dialog class="modal" id="edit-dialog" aria-labelledby="edit-dialog-title">
+    <form method="post" class="modal-form" id="edit-form">
+        <div class="modal-head"><div><p class="eyebrow">Consumer record</p><h2 id="edit-dialog-title">Edit consumer</h2><p>Update profile, contact, and tariff details.</p></div><button class="icon-btn modal-close" id="close-edit-dialog" type="button" aria-label="Close"><i data-lucide="x"></i></button></div>
+        <div class="form-grid">
+            <label class="span-2">Consumer name<input id="edit-name" name="name" maxlength="100" required></label>
+            <label>Consumer type<select id="edit-consumer-type" name="consumer_type" required><option>Residential</option><option>Commercial</option><option>Industrial</option><option>Agricultural</option></select></label>
+            <label>Region<input id="edit-consumer-region" name="region" maxlength="80" required></label>
+            <label>Phone<input id="edit-phone" name="phone" maxlength="30"></label>
+            <label>Email<input id="edit-email" name="email" type="email" maxlength="120"></label>
+            <label class="span-2">Address<input id="edit-address" name="address" maxlength="180"></label>
+            <label>Tariff plan<select id="edit-tariff" name="tariff_id"><option value="">No tariff</option>{% for tariff in tariffs %}<option value="{{ tariff.id }}">{{ tariff.name }}</option>{% endfor %}</select></label>
+            <label class="span-2">Notes<textarea id="edit-notes" name="notes" rows="2" maxlength="500" placeholder="Internal notes about this consumer"></textarea></label>
+        </div>
+        <div class="modal-actions"><button class="btn btn-ghost" id="cancel-edit-dialog" type="button">Cancel</button><button class="btn btn-primary" type="submit"><i data-lucide="save"></i> Save changes</button></div>
+    </form>
+</dialog>
+
+<!-- ═══════════════ RECORD READING ═══════════════ -->
+<dialog class="modal" id="reading-dialog" aria-labelledby="reading-dialog-title">
+    <form action="{{ url_for('add_reading') }}" method="post" class="modal-form">
+        <div class="modal-head"><div><p class="eyebrow">Meter data</p><h2 id="reading-dialog-title">Record meter reading</h2><p>Enter the total cumulative value displayed by the meter.</p></div><button class="icon-btn modal-close" id="close-reading-dialog" type="button" aria-label="Close"><i data-lucide="x"></i></button></div>
+        <div class="form-grid">
+            <label class="span-2">Meter<select id="reading-consumer" name="meter_id" required><option value="">Choose a meter</option>{% for meter in meters_for_reading %}<option value="{{ meter.meter_id }}">{{ meter.name }} · {{ meter.meter_code }}</option>{% endfor %}</select></label>
+            <label>Reading date<input id="reading-date" name="reading_date" type="date" value="{{ today }}" required></label>
+            <label>Cumulative meter value <span>(kWh)</span><input id="reading-cumulative" name="cumulative_kwh" type="number" min="0" step="1" placeholder="e.g. 12450" required></label>
+        </div>
+        <div class="reading-preview" id="reading-preview" hidden>
+            <div class="preview-head"><span class="preview-state" id="preview-state">Ready</span><span id="preview-meter"></span></div>
+            <div class="preview-body">
+                <div class="preview-usage"><span id="preview-usage">—</span><small>kWh estimated</small></div>
+                <div class="preview-meta"><span id="preview-previous">Previous reading: —</span><span id="preview-date">Last date: —</span></div>
+            </div>
+            <p class="preview-note" id="preview-note">Choose a meter to see a live calculation before saving.</p>
+        </div>
+        <p class="form-help"><i data-lucide="info"></i> ElectroTrack calculates usage from the previous valid reading and applies review rules automatically.</p>
+        <div class="modal-actions"><button class="btn btn-ghost" id="cancel-reading-dialog" type="button">Cancel</button><button class="btn btn-primary" type="submit"><i data-lucide="save"></i> Save reading</button></div>
+    </form>
+</dialog>
+
+<!-- ═══════════════ ADD METER ═══════════════ -->
+<dialog class="modal" id="meter-dialog" aria-labelledby="meter-dialog-title">
+    <form action="{{ url_for('add_meter') }}" method="post" class="modal-form">
+        <div class="modal-head"><div><p class="eyebrow">Meter inventory</p><h2 id="meter-dialog-title">Add meter</h2><p>Attach a physical meter to an existing consumer.</p></div><button class="icon-btn modal-close" id="close-meter-dialog" type="button" aria-label="Close"><i data-lucide="x"></i></button></div>
+        <div class="form-grid">
+            <label class="span-2">Consumer<select name="consumer_id" required><option value="">Choose consumer</option>{% for item in consumer_options %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}</select></label>
+            <label>Meter code<input name="meter_code" maxlength="40" placeholder="e.g. MTR-6001" required></label>
+            <label>Region<input name="region" maxlength="80" placeholder="Inherits consumer region"></label>
+            <label>Meter type<select name="meter_type"><option>Standard</option><option>Smart</option><option>Prepaid</option><option>CT</option></select></label>
+            <label>Phase<select name="phase"><option>Single</option><option>Three</option></select></label>
+            <label class="span-2">Capacity (kW)<input name="capacity_kw" type="number" min="0" step="0.1" placeholder="Optional sanctioned load"></label>
+        </div>
+        <div class="modal-actions"><button class="btn btn-ghost" id="cancel-meter-dialog" type="button">Cancel</button><button class="btn btn-primary" type="submit"><i data-lucide="plus"></i> Add meter</button></div>
+    </form>
+</dialog>
+
+<!-- ═══════════════ EDIT METER ═══════════════ -->
+<dialog class="modal" id="meter-edit-dialog" aria-labelledby="meter-edit-title">
+    <form method="post" class="modal-form" id="meter-edit-form">
+        <div class="modal-head"><div><p class="eyebrow">Meter inventory</p><h2 id="meter-edit-title">Edit meter</h2><p>Update meter identity and connection details.</p></div><button class="icon-btn modal-close" id="close-meter-edit" type="button" aria-label="Close"><i data-lucide="x"></i></button></div>
+        <div class="form-grid">
+            <label class="span-2">Meter code<input id="meter-edit-code" name="meter_code" maxlength="40" required></label>
+            <label>Meter type<select id="meter-edit-type" name="meter_type"><option>Standard</option><option>Smart</option><option>Prepaid</option><option>CT</option></select></label>
+            <label>Phase<select id="meter-edit-phase" name="phase"><option>Single</option><option>Three</option></select></label>
+            <label class="span-2">Capacity (kW)<input id="meter-edit-capacity" name="capacity_kw" type="number" min="0" step="0.1"></label>
+        </div>
+        <div class="modal-actions"><button class="btn btn-ghost" id="cancel-meter-edit" type="button">Cancel</button><button class="btn btn-primary" type="submit"><i data-lucide="save"></i> Save changes</button></div>
+    </form>
+</dialog>
+
+<!-- ═══════════════ COMMAND PALETTE ═══════════════ -->
+<div class="command-overlay" id="command-overlay" hidden>
+    <div class="command-panel" role="dialog" aria-modal="true" aria-labelledby="command-title">
+        <h2 id="command-title" class="visually-hidden">Command palette</h2>
+        <div class="command-input"><i data-lucide="search"></i><input id="command-input" type="text" placeholder="Search pages, consumers, meters, or actions…" autocomplete="off" aria-label="Search"><kbd>ESC</kbd></div>
+        <div class="command-results" id="command-results" role="listbox" aria-label="Results"></div>
+        <div class="command-foot"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
+    </div>
+</div>
+
+<script id="et-data" type="application/json">{{ et_data|tojson }}</script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
