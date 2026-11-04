@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#050916">
+  <meta name="description" content="Explore ElectroTrack, an electricity consumption analysis workspace for consumers, meters, readings, and usage reports.">
+  <title>ElectroTrack · Electricity insights</title>
+  <script>try { var savedTheme = localStorage.getItem('et-theme'); if (savedTheme) document.documentElement.dataset.theme = savedTheme; } catch (e) {}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="public-page">
+  <div class="scene" aria-hidden="true">
+    <div class="aurora aurora-a"></div><div class="aurora aurora-b"></div><div class="aurora aurora-c"></div>
+    <div class="scene-grid"></div><div class="scene-noise"></div>
+  </div>
+
+  <header class="public-header">
+    <a class="logo" href="/" aria-label="ElectroTrack home">
+      <span class="logo-mark"><i data-lucide="zap"></i></span>
+      <span class="logo-wordmark"><span class="brand-electro">Electro</span><span class="brand-track">Track</span></span>
+      <span class="logo-pro">PRO</span>
+    </a>
+    <nav aria-label="Main navigation">
+      <a href="#features">Features</a>
+      <a href="#how-it-works">How it works</a>
+      <a class="btn btn-ghost public-login" href="{{ url_for('login') }}">Sign in</a>
+      <a class="btn btn-primary" href="{{ url_for('register') }}">Get started <i data-lucide="arrow-right"></i></a>
+    </nav>
+  </header>
+
+  <main class="public-main">
+    <section class="public-hero">
+      <div class="public-hero-copy">
+        <span class="hero-badge"><span class="pulse-ring"></span> Electricity usage, made clear</span>
+        <h1>Understand every<br><span class="text-grad">kilowatt.</span></h1>
+        <p>ElectroTrack helps teams organize consumers, meters, and readings, then turn that information into clear usage trends and reports.</p>
+        <div class="public-hero-actions">
+          <a class="btn btn-primary btn-lg" href="{{ url_for('register') }}">Explore your workspace <i data-lucide="arrow-up-right"></i></a>
+          <a class="btn btn-ghost btn-lg" href="#features">See what it can do <i data-lucide="arrow-down"></i></a>
+        </div>
+        <div class="public-points">
+          <span><i data-lucide="check-circle-2"></i> Meter-level usage tracking</span>
+          <span><i data-lucide="check-circle-2"></i> Readings checked over time</span>
+          <span><i data-lucide="check-circle-2"></i> Clear reports and comparisons</span>
+        </div>
+      </div>
+
+      <div class="public-preview" aria-label="Illustration of an electricity usage dashboard">
+        <div class="preview-window">
+          <div class="preview-top"><span class="preview-dots"><i></i><i></i><i></i></span><span>Usage overview</span><span class="preview-live"><b></b> Insights</span></div>
+          <div class="preview-body">
+            <div class="preview-heading"><div><small>CONSUMPTION ANALYSIS</small><strong>Electricity overview</strong></div><span class="preview-period">This month <i data-lucide="chevron-down"></i></span></div>
+            <div class="preview-stats">
+              <div><span>Monthly usage</span><strong>2,840 <small>kWh</small></strong><em><i data-lucide="trending-up"></i> Usage summary</em></div>
+              <div><span>Active meters</span><strong>08</strong><em><i data-lucide="activity"></i> Meter records</em></div>
+            </div>
+            <div class="preview-chart-wrap">
+              <div class="preview-chart-label"><span>Usage trend</span><span>Illustrative preview</span></div>
+              <svg class="preview-chart" viewBox="0 0 600 190" role="img" aria-label="Illustrative rising and falling electricity usage trend">
+                <defs><linearGradient id="areaFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#22d3ee" stop-opacity=".27"/><stop offset="1" stop-color="#22d3ee" stop-opacity="0"/></linearGradient></defs>
+                <path class="chart-grid-line" d="M0 30H600M0 75H600M0 120H600M0 165H600"/>
+                <path class="chart-area" d="M0 140 C45 132 58 118 98 124 S155 98 195 107 S250 75 294 91 S350 62 394 75 S445 46 493 63 S550 25 600 38 V190 H0Z"/>
+                <path class="chart-line" d="M0 140 C45 132 58 118 98 124 S155 98 195 107 S250 75 294 91 S350 62 394 75 S445 46 493 63 S550 25 600 38"/>
+                <circle class="chart-point" cx="493" cy="63" r="5"/><circle class="chart-point" cx="600" cy="38" r="5"/>
+              </svg>
+              <div class="preview-axis"><span>Week 1</span><span>Week 2</span><span>Week 3</span><span>Week 4</span></div>
+            </div>
+            <div class="preview-bottom"><span><i data-lucide="shield-check"></i> Reading validation</span><span><i data-lucide="bar-chart-3"></i> Consumer comparison</span><span><i data-lucide="file-text"></i> Reports</span></div>
+          </div>
+        </div>
+        <div class="preview-float"><span class="preview-float-icon"><i data-lucide="gauge"></i></span><span><small>Meter readings</small><strong>Organized by date</strong></span></div>
+      </div>
+    </section>
+
+    <section class="public-feature-section" id="features">
+      <div class="public-section-heading"><p class="eyebrow">A clearer picture</p><h2>Everything you need to<br><span class="text-grad">make sense of usage.</span></h2><p>One place to keep records tidy and find the patterns that matter.</p></div>
+      <div class="public-feature-grid">
+        <article class="public-feature-card"><span class="public-feature-icon cyan"><i data-lucide="users-round"></i></span><h3>Manage consumer profiles</h3><p>Store names, contact details, consumer types, regions, and notes. Link a consumer with the meters used at their property.</p></article>
+        <article class="public-feature-card"><span class="public-feature-icon violet"><i data-lucide="gauge"></i></span><h3>Keep meters organized</h3><p>Manage multiple meters per consumer, with meter codes and details kept alongside each meter’s own reading history.</p></article>
+        <article class="public-feature-card"><span class="public-feature-icon green"><i data-lucide="clipboard-check"></i></span><h3>Record and validate readings</h3><p>Enter dated cumulative kWh values or import a batch from CSV. Readings are checked in date order; decreases and unusually large jumps are flagged for review.</p></article>
+        <article class="public-feature-card"><span class="public-feature-icon amber"><i data-lucide="chart-no-axes-combined"></i></span><h3>Explore usage patterns</h3><p>View trends by period and filter analytics by consumer, region, type, meter, or data source. Compare consumers or meters over the selected period.</p></article>
+        <article class="public-feature-card"><span class="public-feature-icon violet"><i data-lucide="bell-ring"></i></span><h3>Catch records to review</h3><p>Set a high-usage alert level and a separate reading-review threshold. Unusual readings can be approved or rejected before they affect usage totals.</p></article>
+        <article class="public-feature-card"><span class="public-feature-icon cyan"><i data-lucide="file-bar-chart-2"></i></span><h3>Prepare useful reports</h3><p>Review monthly totals, consumer and meter summaries, and reading-validation details. Export reports as CSV or print a report view.</p></article>
+      </div>
+    </section>
+
+    <section class="public-data-strip" aria-label="Data and account information">
+      <div><span class="public-data-icon"><i data-lucide="database"></i></span><p><strong>Local project data</strong><small>Records are stored in the project’s SQLite database on this computer.</small></p></div>
+      <div><span class="public-data-icon"><i data-lucide="users-round"></i></span><p><strong>Account roles</strong><small>Administrator, operator, and viewer permissions help control workspace actions.</small></p></div>
+      <div><span class="public-data-icon"><i data-lucide="hard-drive-download"></i></span><p><strong>Backup and restore</strong><small>Download a database backup and restore it from the reports area.</small></p></div>
+    </section>
+
+    <section class="public-how" id="how-it-works">
+      <div><p class="eyebrow">Simple by design</p><h2>From meter values<br>to useful insight.</h2><p>ElectroTrack calculates usage from valid consecutive readings, then groups it by consumer and period so trends are easier to understand.</p><a class="text-link" href="{{ url_for('register') }}">Open ElectroTrack <i data-lucide="arrow-right"></i></a></div>
+      <div class="public-steps">
+        <div><span>01</span><i data-lucide="users"></i><section><strong>Organize records</strong><small>Add consumers and link one or more meters.</small></section></div>
+        <div><span>02</span><i data-lucide="clipboard-list"></i><section><strong>Enter dated readings</strong><small>Keep meter values in a clear timeline.</small></section></div>
+        <div><span>03</span><i data-lucide="chart-no-axes-combined"></i><section><strong>Review usage</strong><small>Compare trends, check alerts, and create reports.</small></section></div>
+      </div>
+    </section>
+
+    <section class="public-cta"><div><p class="eyebrow">Ready when you are</p><h2>Take a closer look at your electricity data.</h2><p>Create an account to open the ElectroTrack workspace.</p></div><a class="btn btn-primary btn-lg" href="{{ url_for('register') }}">Get started <i data-lucide="arrow-right"></i></a></section>
+    <p class="public-disclaimer"><i data-lucide="info"></i> Usage and billing figures are analytical estimates and do not replace official utility calculations.</p>
+  </main>
+
+  <footer class="public-footer"><a class="logo" href="/" aria-label="ElectroTrack home"><span class="logo-mark"><i data-lucide="zap"></i></span><span class="logo-wordmark"><span class="brand-electro">Electro</span><span class="brand-track">Track</span></span></a><span>Electricity Consumption Analysis System</span><a href="{{ url_for('login') }}">Sign in</a></footer>
+  <script>if (window.lucide) window.lucide.createIcons();</script>
+</body>
+</html>

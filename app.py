@@ -459,6 +459,10 @@ def require_login():
         return redirect(url_for("setup"))
     if user is None:
         session.clear()
+        # The root page is a public product introduction. All workspace pages,
+        # data endpoints, and write actions still require an authenticated user.
+        if request.endpoint == "home":
+            return None
         return redirect(url_for("login"))
     session["role"] = user["role"]
     if request.method == "POST" and request.endpoint not in {
@@ -594,7 +598,7 @@ def register():
 @app.route("/logout", methods=["POST"])
 def logout():
     session.clear()
-    return redirect(url_for("login"))
+    return redirect(url_for("home"))
 
 
 @app.route("/forgot-password", methods=["GET", "POST"])
@@ -749,6 +753,9 @@ def restore_database_backup():
 
 @app.route("/")
 def home():
+    if not session.get("user_id"):
+        return render_template("landing.html")
+
     today_date    = date.today()
     today         = today_date.isoformat()
     current_month = today[:7]
